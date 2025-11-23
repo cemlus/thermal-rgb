@@ -1,0 +1,19 @@
+# Requirements for Thermal -> RGB Image Translation project
+# NOTE: For GPU support, install the appropriate PyTorch wheel for your CUDA version:
+#       https://pytorch.org/get-started/locally/
+torch==2.0.1
+torchvision==0.15.2
+
+numpy==1.24.4
+Pillow==9.5.0
+matplotlib==3.7.2
+scikit-image==0.20.0
+opencv-python==4.8.0.74
+tqdm==4.65.0
+tensorboard==2.12.3
+torchmetrics==0.11.4
+typing-extensions==4.5.0
+
+# Optional / convenience
+scikit-learn==1.2.2
+# torchaudio==2.0.2   # Uncomment if you need audio utilities
