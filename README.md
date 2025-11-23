@@ -31,4 +31,4 @@ This repository contains an implementation and experimental setup for translatin
 
 ---
 
-Dataset Link: `https://www.sciencedirect.com/science/article/pii/S1350449524003268`
+Original Research Paper Link: https://www.sciencedirect.com/science/article/pii/S1350449524003268
