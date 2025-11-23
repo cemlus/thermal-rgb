@@ -1,4 +1,4 @@
-# Requirements for Thermal -> RGB Image Translation project
+# Requirements for Thermal - RGB Image Translation project
 # NOTE: For GPU support, install the appropriate PyTorch wheel for your CUDA version:
 #       https://pytorch.org/get-started/locally/
 torch==2.0.1
