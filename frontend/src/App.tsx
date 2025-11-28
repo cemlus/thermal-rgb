@@ -78,7 +78,7 @@ function App() {
       
       {/* Header */}
       <div className="text-center mb-10">
-        <h1 className="text-5xl font-extrabold bg-gradient-to-r from-orange-400 to-red-600 bg-clip-text text-transparent mb-2">
+        <h1 className="text-5xl font-extrabold bg-linear-to-r from-orange-400 to-red-600 bg-clip-text text-transparent mb-2">
           Thermal<span className="text-white">2</span>RGB
         </h1>
         <p className="text-gray-400">GAN-Powered Night Vision Converter</p>

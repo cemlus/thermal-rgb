@@ -1,6 +1,9 @@
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import axios from "axios";
 import { Upload, RefreshCw, AlertCircle, ArrowRight } from "lucide-react";
+// import dotenv from 'dotenv';
+// dotenv.config();
+
 
 // ----------------------------------------------------------------------
 // 🔗 PASTE YOUR CLOUDFLARE URL HERE (from the spare laptop terminal)
@@ -9,6 +12,7 @@ import { Upload, RefreshCw, AlertCircle, ArrowRight } from "lucide-react";
 // const API_URL = "http://localhost:8000";
 
 const API_URL = "https://programming-doctrine-planning-drill.trycloudflare.com";
+// const API_URL = process.env.API_URL;
 
 function NewApp() {
   // Define strict types for state
@@ -92,7 +96,7 @@ function NewApp() {
     <div className="min-h-screen flex flex-col items-center justify-center p-4 font-sans bg-gray-950 text-white">
       {/* Header */}
       <div className="text-center mb-10">
-        <h1 className="text-5xl font-extrabold bg-gradient-to-r from-orange-400 to-red-600 bg-clip-text text-transparent mb-2">
+        <h1 className="text-5xl font-extrabold bg-linear-to-r from-orange-400 to-red-600 bg-clip-text text-transparent mb-2">
           Thermal<span className="text-white">2</span>RGB
         </h1>
         <p className="text-gray-400">GAN-Powered Night Vision Converter</p>
