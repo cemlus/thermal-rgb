@@ -4,89 +4,121 @@ const sharp = require('sharp');
 const onnx = require('onnxruntime-node');
 const cors = require('cors');
 const path = require('path');
+const fs = require('fs');
+const mongoose = require('mongoose');
+require('dotenv').config();
+
+const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/thermal_rgb';
+
 
 const app = express();
-app.use(cors());
+app.use(express.json());
+
+mongoose.connect(MONGODB_URI)
+    .then(() => console.log("✅ Connected to MongoDB"))
+    .catch(err => console.error("❌ MongoDB connection error:", err));
+app.use(cors({
+    origin: [
+        'https://thermal-rgb.vercel.app',
+        'http://localhost:5173',
+        'http://localhost:3000'
+    ],
+    credentials: true
+}));
+
+const userRouter = require("./router/router");
+app.use("/api/auth", userRouter);
+
 
 // --- CONFIGURATION ---
-const MODEL_PATH = path.join(__dirname, '../model_weights/thermal_gan.onnx'); // Point to your ONNX file
-let session = null;
+const PATH_THERMAL_TO_RGB = path.join(__dirname, '../model_weights/thermal_gan.onnx');
+const PATH_RGB_TO_THERMAL = path.join(__dirname, '../model_weights/rgbToThermalGan.onnx');
 
-// --- LOAD MODEL ON STARTUP ---
-async function loadModel() {
+let sessionT2R = null; // Thermal -> RGB
+let sessionR2T = null; // RGB -> Thermal
+
+// --- LOAD MODELS ON STARTUP ---
+async function loadModels() {
     try {
-        console.log("Loading 500MB ONNX Model... Please wait.");
-        // We load the model into memory once
-        session = await onnx.InferenceSession.create(MODEL_PATH);
-        console.log("✅ Model Loaded Successfully!");
+        console.log("🔄 Loading Models...");
+
+        // Load Thermal -> RGB
+        if (fs.existsSync(PATH_THERMAL_TO_RGB)) {
+            sessionT2R = await onnx.InferenceSession.create(PATH_THERMAL_TO_RGB);
+            console.log(`✅ Loaded: Thermal -> RGB (Input: ${sessionT2R.inputNames[0]})`);
+        } else {
+            console.error(`❌ Missing: ${PATH_THERMAL_TO_RGB}`);
+        }
+
+        // Load RGB -> Thermal
+        if (fs.existsSync(PATH_RGB_TO_THERMAL)) {
+            sessionR2T = await onnx.InferenceSession.create(PATH_RGB_TO_THERMAL);
+            console.log(`✅ Loaded: RGB -> Thermal (Input: ${sessionR2T.inputNames[0]})`);
+        } else {
+            console.error(`❌ Missing: ${PATH_RGB_TO_THERMAL}`);
+        }
+
     } catch (e) {
-        console.error("❌ Failed to load model:", e);
+        console.error("❌ Critical Error loading models:", e);
     }
 }
-loadModel();
+loadModels();
 
-// --- UPLOAD HANDLING ---
 const upload = multer({ storage: multer.memoryStorage() });
 
-app.get('/', (req, res) => {
-    res.json({
-        message: `the server is active and running!`
-    })
-})
+// --- HELPER: NORMALIZE & INTERLEAVE ---
+function prepareTensor(data, width, height, channels) {
+    const size = width * height;
+    const float32Data = new Float32Array(channels * size);
 
-// const lectureResponse = await fetch('https://unduly-coherent-bear.ngrok-free.app/api/lectures/', {
-//         method: 'POST',
-//          headers: {
-//     ...getAuthHeader(),
-//     "Content-Type": "application/json",
-//     'ngrok-skip-browser-warning': 'true', // ⬅ prevents the ngrok banner
-//   }
+    if (channels === 1) {
+        for (let i = 0; i < size; i++) {
+            float32Data[i] = (data[i] / 255.0 - 0.5) / 0.5;
+        }
+    }
+    else if (channels === 3) {
+        for (let i = 0; i < size; i++) {
+            float32Data[i] = (data[i * 3] / 255.0 - 0.5) / 0.5;
+            float32Data[i + size] = (data[i * 3 + 1] / 255.0 - 0.5) / 0.5;
+            float32Data[i + size * 2] = (data[i * 3 + 2] / 255.0 - 0.5) / 0.5;
+        }
+    }
+    return new onnx.Tensor('float32', float32Data, [1, channels, height, width]);
+}
 
-app.post('/generate', upload.single('file'), async (req, res) => {
-    if (!session) return res.status(503).send("Model is still loading...");
+// --- ROUTE 1: THERMAL TO RGB ---
+app.post(['/generate', '/thermal-to-rgb'], upload.single('file'), async (req, res) => {
+    if (!sessionT2R) return res.status(503).send("Model not ready.");
     if (!req.file) return res.status(400).send("No file uploaded");
 
     try {
-        // 1. PREPROCESS IMAGE (Using Sharp)
-        // Resize to 256x256, Convert to Grayscale, Get Raw Pixel Data
-        const { data, info } = await sharp(req.file.buffer)
+        const { data } = await sharp(req.file.buffer)
             .resize(256, 256, { fit: 'fill' })
-            .grayscale() // Ensure 1 Channel
+            .grayscale()
             .raw()
             .toBuffer({ resolveWithObject: true });
 
-        // 2. NORMALIZE & CREATE TENSOR
-        // Map 0-255 pixels to [-1, 1] range (Mean 0.5, Std 0.5)
-        const float32Data = new Float32Array(256 * 256);
-        for (let i = 0; i < data.length; i++) {
-            float32Data[i] = (data[i] / 255.0 - 0.5) / 0.5;
-        }
+        const inputTensor = prepareTensor(data, 256, 256, 1);
 
-        // Create ONNX Tensor (Batch:1, Channel:1, H:256, W:256)
-        const inputTensor = new onnx.Tensor('float32', float32Data, [1, 1, 256, 256]);
+        // FIX: Dynamically get the input name the model expects
+        const inputName = sessionT2R.inputNames[0];
+        const feeds = { [inputName]: inputTensor };
 
-        // 3. RUN INFERENCE
-        const feeds = { input: inputTensor }; // 'input' matches the name in export script
-        const results = await session.run(feeds);
-        const outputData = results.output.data; // Float32Array output
+        const results = await sessionT2R.run(feeds);
+        const outputData = results[Object.keys(results)[0]].data;
 
-        // 4. POSTPROCESS (Tensor -> RGB Image)
-        // Output is [1, 3, 256, 256]. We need to interleave it to [256, 256, 3] for Sharp
-        const rgbBuffer = Buffer.alloc(256 * 256 * 3);
-        
-        for (let i = 0; i < 256 * 256; i++) {
-            // Inverse Normalize: (x * 0.5) + 0.5 -> Map [-1, 1] back to [0, 1] -> * 255
+        // Postprocess...
+        const size = 256 * 256;
+        const rgbBuffer = Buffer.alloc(size * 3);
+        for (let i = 0; i < size; i++) {
             let r = (outputData[i] * 0.5 + 0.5) * 255;
-            let g = (outputData[i + 256 * 256] * 0.5 + 0.5) * 255;
-            let b = (outputData[i + 256 * 256 * 2] * 0.5 + 0.5) * 255;
-
-            // Clamp values
+            let g = (outputData[i + size] * 0.5 + 0.5) * 255;
+            let b = (outputData[i + size * 2] * 0.5 + 0.5) * 255;
             rgbBuffer[i * 3] = Math.max(0, Math.min(255, r));
             rgbBuffer[i * 3 + 1] = Math.max(0, Math.min(255, g));
             rgbBuffer[i * 3 + 2] = Math.max(0, Math.min(255, b));
         }
 
-        // 5. SEND BACK AS PNG
         const finalImage = await sharp(rgbBuffer, {
             raw: { width: 256, height: 256, channels: 3 }
         }).png().toBuffer();
@@ -94,10 +126,62 @@ app.post('/generate', upload.single('file'), async (req, res) => {
         res.type('image/png').send(finalImage);
 
     } catch (err) {
-        console.error(err);
-        res.status(500).send("Error processing image");
+        console.error("Error in T2R:", err);
+        res.status(500).send("Processing Error");
     }
 });
 
-// Start Server
-app.listen(8000, '0.0.0.0' ,() => console.log("🚀 Node.js Server running on port 8000"));
+// --- ROUTE 2: RGB TO THERMAL ---
+app.post('/rgb-to-thermal', upload.single('file'), async (req, res) => {
+    if (!sessionR2T) return res.status(503).send("Model not ready.");
+    if (!req.file) return res.status(400).send("No file uploaded");
+
+    try {
+        const { data } = await sharp(req.file.buffer)
+            .resize(256, 256, { fit: 'fill' })
+            .removeAlpha()
+            .raw()
+            .toBuffer({ resolveWithObject: true });
+
+        const inputTensor = prepareTensor(data, 256, 256, 3);
+
+        // FIX: Dynamically get the input name (likely 'rgb_input')
+        const inputName = sessionR2T.inputNames[0];
+        const feeds = { [inputName]: inputTensor };
+
+        const results = await sessionR2T.run(feeds);
+        const outputData = results[Object.keys(results)[0]].data;
+
+        // Postprocess...
+        const size = 256 * 256;
+        const grayBuffer = Buffer.alloc(size);
+        for (let i = 0; i < size; i++) {
+            let val = (outputData[i] * 0.5 + 0.5) * 255;
+            grayBuffer[i] = Math.max(0, Math.min(255, val));
+        }
+
+        const finalImage = await sharp(grayBuffer, {
+            raw: { width: 256, height: 256, channels: 1 }
+        }).png().toBuffer();
+
+        res.type('image/png').send(finalImage);
+
+    } catch (err) {
+        console.error("Error in R2T:", err);
+        res.status(500).send(err.message);
+    }
+});
+
+// --- GLOBAL ERROR HANDLER ---
+app.use((err, req, res, next) => {
+    if (err instanceof multer.MulterError) {
+        return res.status(400).json({ message: "File upload error", detail: err.message });
+    }
+
+    console.error("Unhandled error:", err);
+    res
+        .status(500)
+        .json({ message: "Internal server error", detail: process.env.NODE_ENV === "development" ? err.message : undefined });
+});
+
+app.listen(8000, '0.0.0.0', () => console.log("🚀 Node.js Server running on port 8000"));
