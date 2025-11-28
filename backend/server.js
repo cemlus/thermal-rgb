@@ -34,6 +34,14 @@ app.get('/', (req, res) => {
     })
 })
 
+// const lectureResponse = await fetch('https://unduly-coherent-bear.ngrok-free.app/api/lectures/', {
+//         method: 'POST',
+//          headers: {
+//     ...getAuthHeader(),
+//     "Content-Type": "application/json",
+//     'ngrok-skip-browser-warning': 'true', // ⬅ prevents the ngrok banner
+//   }
+
 app.post('/generate', upload.single('file'), async (req, res) => {
     if (!session) return res.status(503).send("Model is still loading...");
     if (!req.file) return res.status(400).send("No file uploaded");
@@ -92,4 +100,4 @@ app.post('/generate', upload.single('file'), async (req, res) => {
 });
 
 // Start Server
-app.listen(8000, () => console.log("🚀 Node.js Server running on port 8000"));
+app.listen(8000, '0.0.0.0' ,() => console.log("🚀 Node.js Server running on port 8000"));
