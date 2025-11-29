@@ -21,7 +21,8 @@ app.use(cors({
     origin: [
         'https://thermal-rgb.vercel.app',
         'http://localhost:5173',
-        'http://localhost:3000'
+        'http://localhost:3000',
+        'https://thermal-to-rgb.vercel.app/'
     ],
     credentials: true
 }));
